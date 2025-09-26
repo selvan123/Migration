@@ -1,0 +1,131 @@
+name: ADO to GitHub Migration
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  migrate:
+    
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+
+    steps:
+      - name: Set up GitHub CLI with ado2gh extension
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}  # ✅ Set GH_TOKEN for gh CLI
+          GH_PAT: ${{ secrets.GH_PAT }}    # ✅ Set GH_PAT for ado2gh extension
+        run: |
+          gh extension install github/gh-ado2gh
+
+      - name: Extract values from issue form
+        id: extract
+        run: |
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          
+          # Debug: Print the issue body to understand the format
+          echo "=== DEBUG: Issue Body Format ==="
+          echo "$ISSUE_BODY"
+          echo "==============================="
+          
+          # Simple extraction function based on element ID patterns
+          # GitHub issue forms render as: ### Field Label\n\nvalue
+          extract_by_id() {
+            local element_id="$1"
+            local field_label="$2"
+            
+            # Method 1: Extract after field label
+            local result=$(echo "$ISSUE_BODY" | awk "/^### $field_label/{getline; while(getline && !/^###/ && !/^[[:space:]]*$/) {gsub(/^[[:space:]]+|[[:space:]]+$/,\"\"); if(length > 0) print}}" | head -1)
+            
+            # Method 2: If method 1 fails, try simpler pattern
+            if [ -z "$result" ]; then
+              result=$(echo "$ISSUE_BODY" | grep -A 2 "^### $field_label" | tail -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$')
+            fi
+            
+            echo "$result"
+          }
+          
+          # Extract values using element IDs from your issue template
+          echo "Extracting form values..."
+          
+          ADO_ORG_NAME=$(extract_by_id "ado_org_name" "Azure DevOps Org")
+          ADO_TEAM_PROJECT=$(extract_by_id "ado_team_project" "ADO Team Project")  
+          ADO_REPO_NAME=$(extract_by_id "ado_repo" "ADO Repo Name")
+          GH_ORG=$(extract_by_id "gh_org" "Target GitHub Org")
+          GH_REPO_NAME=$(extract_by_id "gh_repo" "Target GitHub Repo Name")
+          
+          # Debug extraction results
+          echo "=== Extraction Results ==="
+          echo "ADO_ORG_NAME: '$ADO_ORG_NAME'"
+          echo "ADO_TEAM_PROJECT: '$ADO_TEAM_PROJECT'"
+          echo "ADO_REPO_NAME: '$ADO_REPO_NAME'"
+          echo "GH_ORG: '$GH_ORG'"
+          echo "GH_REPO_NAME: '$GH_REPO_NAME'"
+          echo "=========================="
+          
+          # Validate that all required fields are present
+          MISSING_FIELDS=""
+          if [ -z "$ADO_ORG_NAME" ]; then MISSING_FIELDS="$MISSING_FIELDS ado_org_name"; fi
+          if [ -z "$ADO_TEAM_PROJECT" ]; then MISSING_FIELDS="$MISSING_FIELDS ado_team_project"; fi  
+          if [ -z "$ADO_REPO_NAME" ]; then MISSING_FIELDS="$MISSING_FIELDS ado_repo"; fi
+          if [ -z "$GH_ORG" ]; then MISSING_FIELDS="$MISSING_FIELDS gh_org"; fi
+          if [ -z "$GH_REPO_NAME" ]; then MISSING_FIELDS="$MISSING_FIELDS gh_repo"; fi
+          
+          if [ -n "$MISSING_FIELDS" ]; then
+            echo "❌ Error: Missing required form fields:$MISSING_FIELDS"
+            echo ""
+            echo "🔍 Please ensure you:"
+            echo "1. Used the issue form template to create the issue"
+            echo "2. Filled in all required fields"
+            echo ""
+            echo "� Raw issue body received:"
+            echo "$ISSUE_BODY"
+            exit 1
+          fi
+
+          # Set outputs for next steps
+          echo "ado_org_name=$ADO_ORG_NAME" >> $GITHUB_OUTPUT
+          echo "ado_team_project=$ADO_TEAM_PROJECT" >> $GITHUB_OUTPUT
+          echo "ado_repo=$ADO_REPO_NAME" >> $GITHUB_OUTPUT
+          echo "gh_org=$GH_ORG" >> $GITHUB_OUTPUT
+          echo "gh_repo_name=$GH_REPO_NAME" >> $GITHUB_OUTPUT
+
+      - name: Run ado2gh migration
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}  # ✅ Required for gh CLI
+          GH_PAT: ${{ secrets.GH_PAT }}    # ✅ Required for ado2gh extension
+          ADO_PAT: ${{ secrets.ADO_PAT }}  # ✅ Required for ADO authentication
+        run: |
+          echo "Starting ADO to GitHub Migration"
+          echo "=================================="
+          echo "ADO Org: ${{ steps.extract.outputs.ado_org_name }}"
+          echo "ADO Team Project: ${{ steps.extract.outputs.ado_team_project }}"
+          echo "ADO Repo: ${{ steps.extract.outputs.ado_repo }}"
+          echo "Target GitHub Org: ${{ steps.extract.outputs.gh_org }}"
+          echo "Target GitHub Repo: ${{ steps.extract.outputs.gh_repo_name }}"
+          echo "=================================="
+
+          # Verify environment variables are set
+          if [ -z "$GH_PAT" ]; then
+            echo "❌ Error: GH_PAT environment variable is not set"
+            echo "Please ensure the GH_PAT secret is configured in your repository settings"
+            exit 1
+          fi
+          
+          if [ -z "$ADO_PAT" ]; then
+            echo "❌ Error: ADO_PAT environment variable is not set"
+            echo "Please ensure the ADO_PAT secret is configured in your repository settings"
+            exit 1
+          fi
+          
+          echo "✅ Environment variables validated"
+
+          # Run the migration using the extracted form values
+          gh ado2gh migrate-repo \
+            --ado-org "${{ steps.extract.outputs.ado_org_name }}" \
+            --ado-team-project "${{ steps.extract.outputs.ado_team_project }}" \
+            --ado-repo "${{ steps.extract.outputs.ado_repo }}" \
+            --github-org "${{ steps.extract.outputs.gh_org }}" \
+            --github-repo "${{ steps.extract.outputs.gh_repo_name }}" 
