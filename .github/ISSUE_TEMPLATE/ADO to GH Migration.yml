@@ -1,0 +1,50 @@
+name: ADO to GitHub Migration
+description: Request a migration from Azure DevOps to GitHub using GEI
+title: "[Migration]: "
+labels: [migration-request]
+body:
+  - type: input
+    id: ado_org_name
+    attributes:
+      label: Azure DevOps Org
+      description: ADO Org Name
+      placeholder: ADO_Org_Name
+    validations:
+      required: true
+
+  - type: input
+    id: ado_team_project
+    attributes:
+      label: ADO Team Project
+      description: Provide the ADO Team Project Name
+      placeholder: team-project-name 
+    validations:
+      required: true
+
+  - type: input
+    id: ado_repo
+    attributes:
+      label: ADO Repo Name
+      description: ADO Repo Name
+      placeholder: ADO_Repo_Name
+    validations:
+      required: true
+
+
+  - type: input
+    id: gh_org
+    attributes:
+      label: Target GitHub Org
+      description: Provide the name of the GitHub ORG to migrate
+      placeholder: your-org
+    validations:
+      required: true
+
+  - type: input
+    id: gh_repo
+    attributes:
+      label: Target GitHub Repo Name
+      description: Provide the name of the GitHub Repo to migrate
+      placeholder: your-repo
+    validations:
+      required: true
